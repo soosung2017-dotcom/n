@@ -1,0 +1,253 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>골프 머니 계산기 (18홀 · 자동계산 · 개인별 이동 · 스킨배판 · 전체화면 캡쳐)</title>
+<style>
+body { font-family: Arial; margin: 16px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #999; padding: 6px; text-align: center; }
+input { width: 64px; text-align:center; }
+.name-input { width: 120px; }
+.controls { margin-bottom: 10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.move { font-weight: bold; }
+.note { font-size:12px; color:#555; }
+.pos { color: #0a7; font-weight: bold; }
+.neg { color: #d33; font-weight: bold; }
+button { padding:6px 12px; }
+</style>
+</head>
+<body>
+
+<h2>골프 머니 계산기 (✅전체화면 스크린샷 포함)</h2>
+
+<div class="controls">
+플레이어 수:
+<select id="playerCount" onchange="setupPlayers()">
+  <option value="2">2명</option>
+  <option value="3">3명</option>
+  <option value="4" selected>4명</option>
+  <option value="5">5명</option>
+</select>
+
+기본 타당($): <input id="rate" value="2" oninput="calculateGame()">
+버디($): <input id="birdie" value="5" oninput="calculateGame()">
+이글($): <input id="eagle" value="20" oninput="calculateGame()">
+스킨($): <input id="skin" value="2" oninput="calculateGame()">
+
+스킨 배판:
+<select id="skinCarryOn" onchange="resetSkinCarry()">
+  <option value="1" selected>ON</option>
+  <option value="0">OFF</option>
+</select>
+
+배판 최대홀:
+<input id="skinMaxPayout" value="3" oninput="calculateGame()">
+
+<button onclick="captureScreen()">📸 전체화면 스크린샷</button>
+</div>
+
+<div class="note">
+- 각 플레이어의 홀별 수익/손실이 +$ / -$ 로 표시됩니다.<br>
+- 스크린샷 버튼을 누르면 현재 화면이 사진으로 저장됩니다.
+</div>
+
+<br>
+<div id="nameArea"></div>
+<br>
+
+<table id="scoreTable"></table>
+
+<h3>18홀 누적 결과</h3>
+<div id="totalResult"></div>
+
+<script>
+let players = 4;
+let skinCarryCount = 0;
+
+function setupPlayers() {
+  players = parseInt(document.getElementById("playerCount").value);
+
+  let nameHTML = "";
+  for (let i = 0; i < players; i++) {
+    nameHTML += `Player ${i+1} 이름: <input class="name-input" id="name${i}" value="Player ${i+1}" oninput="updateHeader()"> `;
+  }
+  document.getElementById("nameArea").innerHTML = nameHTML;
+
+  buildTable();
+  resetSkinCarry();
+  calculateGame();
+}
+
+function resetSkinCarry(){
+  skinCarryCount = 0;
+  calculateGame();
+}
+
+function updateHeader(){
+  buildTable(true);
+  calculateGame();
+}
+
+function buildTable(keepScore=false) {
+  const oldScores = {};
+  if(keepScore){
+    for(let h=1;h<=18;h++){
+      for(let i=0;i<players;i++){
+        const el = document.getElementById(`s${h}_${i}`);
+        if(el) oldScores[`s${h}_${i}`] = el.value;
+      }
+    }
+  }
+
+  const tbl = document.getElementById("scoreTable");
+  tbl.innerHTML = "";
+
+  let header = "<tr><th rowspan='2'>홀</th><th rowspan='2'>파</th>";
+  for (let i=0;i<players;i++)
+    header += `<th colspan='2'>${document.getElementById("name"+i)?.value || ("Player "+(i+1))}</th>`;
+  header += "<th rowspan='2'>이 홀 총 이동</th></tr>";
+
+  header += "<tr>";
+  for (let i=0;i<players;i++){
+    header += "<th>타수</th><th>금액</th>";
+  }
+  header += "</tr>";
+
+  tbl.innerHTML += header;
+
+  for (let h=1;h<=18;h++) {
+    let row = `<tr><td>${h}</td><td><input id="par${h}" value="4" oninput="calculateGame()"></td>`;
+    for (let i=0;i<players;i++) {
+      row += `<td><input id="s${h}_${i}" oninput="calculateGame()"></td>`;
+      row += `<td class="move" id="pm${h}_${i}">$0</td>`;
+    }
+    row += `<td class="move" id="move${h}">$0</td></tr>`;
+    tbl.innerHTML += row;
+  }
+
+  if(keepScore){
+    for(let key in oldScores){
+      const el=document.getElementById(key);
+      if(el) el.value=oldScores[key];
+    }
+  }
+}
+
+function calculateGame() {
+  let rate = Number(document.getElementById("rate").value);
+  let birdie = Number(document.getElementById("birdie").value);
+  let eagle = Number(document.getElementById("eagle").value);
+  let skin = Number(document.getElementById("skin").value);
+  let carryOn = document.getElementById("skinCarryOn").value === "1";
+  let maxPayout = Math.max(1, Number(document.getElementById("skinMaxPayout").value || 1));
+
+  let total = new Array(players).fill(0);
+  skinCarryCount = 0;
+
+  for (let h=1;h<=18;h++) {
+    let par = Number(document.getElementById("par"+h).value);
+    let scores = [];
+
+    for (let i=0;i<players;i++) {
+      scores.push(Number(document.getElementById(`s${h}_${i}`).value || 0));
+    }
+
+    let holeMoney = new Array(players).fill(0);
+
+    for (let i=0;i<players;i++) {
+      for (let j=i+1;j<players;j++) {
+        const diff = scores[i] - scores[j];
+        if (diff > 0) {
+          holeMoney[i] -= diff * rate;
+          holeMoney[j] += diff * rate;
+        } else if (diff < 0) {
+          holeMoney[i] += Math.abs(diff) * rate;
+          holeMoney[j] -= Math.abs(diff) * rate;
+        }
+      }
+    }
+
+    scores.forEach((s, i) => {
+      if (s <= par - 2) {
+        holeMoney[i] += eagle * (players - 1);
+        for (let j=0;j<players;j++) if (j!==i) holeMoney[j] -= eagle;
+      } else if (s === par - 1) {
+        holeMoney[i] += birdie * (players - 1);
+        for (let j=0;j<players;j++) if (j!==i) holeMoney[j] -= birdie;
+      }
+    });
+
+    const min = Math.min(...scores);
+    const winCount = scores.filter(v => v === min).length;
+
+    if (winCount === 1 && min <= par) {
+      const winnerIdx = scores.indexOf(min);
+      if (carryOn) {
+        const payable = Math.min(skinCarryCount + 1, maxPayout);
+        const remain = Math.max(0, skinCarryCount + 1 - maxPayout);
+
+        holeMoney[winnerIdx] += skin * (players - 1) * payable;
+        for (let j=0;j<players;j++)
+          if (j!==winnerIdx) holeMoney[j] -= skin * payable;
+
+        skinCarryCount = remain;
+      } else {
+        holeMoney[winnerIdx] += skin * (players - 1);
+        for (let j=0;j<players;j++) if (j!==winnerIdx) holeMoney[j] -= skin;
+        skinCarryCount = 0;
+      }
+    } else {
+      if (carryOn) skinCarryCount += 1;
+    }
+
+    let moveSum = 0;
+    for (let i=0;i<players;i++){
+      const cell = document.getElementById(`pm${h}_${i}`);
+      cell.innerText = (holeMoney[i]>=0?"+":"") + "$" + holeMoney[i].toFixed(0);
+      cell.className = "move " + (holeMoney[i]>=0 ? "pos" : "neg");
+      moveSum += Math.abs(holeMoney[i]);
+      total[i] += holeMoney[i];
+    }
+
+    document.getElementById("move"+h).innerText = "$" + (moveSum/2).toFixed(0);
+  }
+
+  let resultHTML = "";
+  for (let i=0;i<players;i++) {
+    resultHTML += document.getElementById("name"+i).value + ": $" + total[i].toFixed(0) + "<br>";
+  }
+  document.getElementById("totalResult").innerHTML = resultHTML;
+}
+
+// ✅ 전체화면 스크린샷 기능 (브라우저 기본 API)
+async function captureScreen(){
+  try{
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 } });
+    const track = stream.getVideoTracks()[0];
+    const imageCapture = new ImageCapture(track);
+    const bitmap = await imageCapture.grabFrame();
+
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0);
+
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = "golf_score_screenshot.png";
+    link.click();
+
+    track.stop();
+  } catch(e){
+    alert("스크린샷 권한이 필요합니다.");
+  }
+}
+
+setupPlayers();
+</script>
+
+</body>
+</html>
